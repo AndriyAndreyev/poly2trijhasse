@@ -13,6 +13,66 @@
 #include <iterator>
 #include <stdexcept>
 
+bool ParseFile(std::string datafile, std::vector<p2t::Point*>& polyline,
+               std::vector<std::vector<p2t::Point*>>& holes, std::vector<p2t::Point*>& steiner)
+{
+  enum ParserState {
+    Polyline,
+    Hole,
+    Steiner,
+  };
+
+  std::ifstream myfile(datafile);
+  if (!myfile.is_open()) {
+    return false;
+  }
+
+  ParserState state = Polyline;
+  std::vector<p2t::Point*>* hole = nullptr;
+  std::string line;
+
+  while (!myfile.eof()) {
+    getline(myfile, line);
+    if (line.empty()) {
+      break;
+    }
+    std::istringstream iss(line);
+    std::vector<std::string> tokens;
+    copy(std::istream_iterator<std::string>(iss), std::istream_iterator<std::string>(),
+         std::back_inserter<std::vector<std::string>>(tokens));
+
+    if (tokens.size() == 1u) {
+      const auto token = tokens[0];
+      if (token == "HOLE") {
+        state = Hole;
+        holes.emplace_back();
+        hole = &holes.back();
+      } else if (token == "STEINER") {
+        state = Steiner;
+      } else {
+        break;
+      }
+    } else {
+      double x = std::stod(tokens[0]);
+      double y = std::stod(tokens[1]);
+      switch (state) {
+        case Polyline:
+          polyline.push_back(new p2t::Point(x, y));
+          break;
+        case Hole:
+          hole->push_back(new p2t::Point(x, y));
+          break;
+        case Steiner:
+          steiner.push_back(new p2t::Point(x, y));
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  return !polyline.empty();
+}
+
 BOOST_AUTO_TEST_CASE(BasicTest)
 {
   std::vector<p2t::Point*> polyline{
@@ -51,12 +111,9 @@ BOOST_AUTO_TEST_CASE(NarrowQuadTest)
 {
   // Very narrow quad that used to demonstrate a failure case during
   // triangulation
-  std::vector<p2t::Point*> polyline {
-    new p2t::Point(0.0,     0.0),
-    new p2t::Point(1.0e-05, 0.0),
-    new p2t::Point(1.1e-04, 3.0e-07),
-    new p2t::Point(1.0e-04, 3.0e-07)
-  };
+  std::vector<p2t::Point*> polyline{ new p2t::Point(0.0, 0.0), new p2t::Point(1.0e-05, 0.0),
+                                     new p2t::Point(1.1e-04, 3.0e-07),
+                                     new p2t::Point(1.0e-04, 3.0e-07) };
   p2t::CDT cdt{ polyline };
   BOOST_CHECK_NO_THROW(cdt.Triangulate());
   const auto result = cdt.GetTriangles();
@@ -72,32 +129,22 @@ BOOST_AUTO_TEST_CASE(ConcaveBoundaryTest)
   // Concave-by-less-than-epsilon boundaries used to potentially fail
   // during triangulation
   const double eps = 1e-15; // This gave EdgeEvent - null triangle
-  std::vector<p2t::Point*> polyline {
-    new p2t::Point(0,0),
-    new p2t::Point(0.5,eps),
-    new p2t::Point(1,0),
-    new p2t::Point(1-eps,0.836541),
-    new p2t::Point(1,2),
-    new p2t::Point(.46,1.46+eps),
-    new p2t::Point(0,1),
-    new p2t::Point(eps,0.5)
-  };
+  std::vector<p2t::Point*> polyline{ new p2t::Point(0, 0), new p2t::Point(0.5, eps),
+                                     new p2t::Point(1, 0), new p2t::Point(1 - eps, 0.836541),
+                                     new p2t::Point(1, 2), new p2t::Point(.46, 1.46 + eps),
+                                     new p2t::Point(0, 1), new p2t::Point(eps, 0.5) };
 
-  const double r2o4 = std::sqrt(2.)/4;
-  std::vector<p2t::Point*> hole {
-    new p2t::Point(0.5+r2o4,0.5),
-    new p2t::Point(0.5,0.5+r2o4),
-    new p2t::Point(0.5-r2o4,0.5),
-    new p2t::Point(0.5-eps,0.5-r2o4)
-  };
+  const double r2o4 = std::sqrt(2.) / 4;
+  std::vector<p2t::Point*> hole{ new p2t::Point(0.5 + r2o4, 0.5), new p2t::Point(0.5, 0.5 + r2o4),
+                                 new p2t::Point(0.5 - r2o4, 0.5),
+                                 new p2t::Point(0.5 - eps, 0.5 - r2o4) };
 
-  std::vector<p2t::Point> interior_points
-    {{0.21,0.79},{0.21,0.21},{0.79,0.21}};
+  std::vector<p2t::Point> interior_points{ { 0.21, 0.79 }, { 0.21, 0.21 }, { 0.79, 0.21 } };
 
   p2t::CDT cdt{ polyline };
   cdt.AddHole(hole);
 
-  for (auto & p : interior_points)
+  for (auto& p : interior_points)
     cdt.AddPoint(&p);
 
   BOOST_CHECK_NO_THROW(cdt.Triangulate());
@@ -111,7 +158,6 @@ BOOST_AUTO_TEST_CASE(ConcaveBoundaryTest)
     delete p;
   }
 }
-
 
 BOOST_AUTO_TEST_CASE(PolygonTest01)
 {
@@ -135,29 +181,26 @@ BOOST_AUTO_TEST_CASE(PolygonTest01)
   const auto result = cdt.GetTriangles();
   BOOST_REQUIRE_EQUAL(result.size(), 10);
   for (const auto p : polyline) {
-     delete p;
+    delete p;
   }
 }
-
 
 BOOST_AUTO_TEST_CASE(PolygonTest02)
 {
   // Reported in issue #10
-  std::vector<p2t::Point*> polyline = {
-    new p2t::Point(0.9636984967276516, 0.7676550649687783),
-    new p2t::Point(0.9636984967276516, -0.7676550649687641),
-    new p2t::Point(-0.3074475690811459, -0.7676550649687641),
-    new p2t::Point(0.09401654924378076, -0.2590574983578904),
-    new p2t::Point(0.10567230819363671, -0.09864698028880525),
-    new p2t::Point(-0.03901177977841874, -0.028405214140875046),
-    new p2t::Point(-0.428964921810446, -0.08483619470406722),
-    new p2t::Point(-0.5128305980156834, -0.12847817634298053),
-    new p2t::Point(-0.5512747518916774, -0.2148501697175078),
-    new p2t::Point(-0.5917836778064418, -0.7037530067555622),
-    new p2t::Point(-0.5520451065921502, -0.7676550649687641),
-    new p2t::Point(-0.9636984967276516, -0.7676550649687641),
-    new p2t::Point(-0.9636984967276516, 0.767655064968778)
-  };
+  std::vector<p2t::Point*> polyline = { new p2t::Point(0.9636984967276516, 0.7676550649687783),
+                                        new p2t::Point(0.9636984967276516, -0.7676550649687641),
+                                        new p2t::Point(-0.3074475690811459, -0.7676550649687641),
+                                        new p2t::Point(0.09401654924378076, -0.2590574983578904),
+                                        new p2t::Point(0.10567230819363671, -0.09864698028880525),
+                                        new p2t::Point(-0.03901177977841874, -0.028405214140875046),
+                                        new p2t::Point(-0.428964921810446, -0.08483619470406722),
+                                        new p2t::Point(-0.5128305980156834, -0.12847817634298053),
+                                        new p2t::Point(-0.5512747518916774, -0.2148501697175078),
+                                        new p2t::Point(-0.5917836778064418, -0.7037530067555622),
+                                        new p2t::Point(-0.5520451065921502, -0.7676550649687641),
+                                        new p2t::Point(-0.9636984967276516, -0.7676550649687641),
+                                        new p2t::Point(-0.9636984967276516, 0.767655064968778) };
   p2t::CDT cdt{ polyline };
   BOOST_CHECK_NO_THROW(cdt.Triangulate());
   const auto result = cdt.GetTriangles();
@@ -170,15 +213,13 @@ BOOST_AUTO_TEST_CASE(PolygonTest02)
 BOOST_AUTO_TEST_CASE(PolygonTest03)
 {
   // Reported in issue #10
-  std::vector<p2t::Point*> polyline = {
-    new p2t::Point(0.9776422201600001, 0.9776422201599928),
-    new p2t::Point(0.9776422201599999, -0.977642220160007),
-    new p2t::Point(-0.12788518519240472, -0.9776422201599928),
-    new p2t::Point(-0.3913394510746002, -0.33861494064331055),
-    new p2t::Point(-0.47812835166211676, -0.9776422201599928),
-    new p2t::Point(-0.9776422201600001, -0.9776422201599928),
-    new p2t::Point(-0.9776422201600001, 0.977642220160007)
-  };
+  std::vector<p2t::Point*> polyline = { new p2t::Point(0.9776422201600001, 0.9776422201599928),
+                                        new p2t::Point(0.9776422201599999, -0.977642220160007),
+                                        new p2t::Point(-0.12788518519240472, -0.9776422201599928),
+                                        new p2t::Point(-0.3913394510746002, -0.33861494064331055),
+                                        new p2t::Point(-0.47812835166211676, -0.9776422201599928),
+                                        new p2t::Point(-0.9776422201600001, -0.9776422201599928),
+                                        new p2t::Point(-0.9776422201600001, 0.977642220160007) };
   p2t::CDT cdt{ polyline };
   BOOST_CHECK_NO_THROW(cdt.Triangulate());
   const auto result = cdt.GetTriangles();
@@ -192,36 +233,82 @@ BOOST_AUTO_TEST_CASE(TestbedFilesTest)
 {
   for (const auto& filename : { "custom.dat", "diamond.dat", "star.dat", "test.dat" }) {
     std::vector<p2t::Point*> polyline;
+    std::vector<std::vector<p2t::Point*>> holes;
+    std::vector<p2t::Point*> steiner;
     // Load pointset from file
     // Parse and tokenize data file
-    std::string line;
 #ifndef P2T_BASE_DIR
     const auto basedir = boost::filesystem::path(__FILE__).remove_filename().parent_path();
 #else
     const auto basedir = boost::filesystem::path(P2T_BASE_DIR);
 #endif
-    const auto datafile = basedir / boost::filesystem::path("testbed/data") / boost::filesystem::path(filename);
-    std::ifstream myfile(datafile.string());
-    BOOST_REQUIRE(myfile.is_open());
-    while (!myfile.eof()) {
-      getline(myfile, line);
-      if (line.empty()) {
-        break;
-      }
-      std::istringstream iss(line);
-      std::vector<std::string> tokens;
-      copy(std::istream_iterator<std::string>(iss), std::istream_iterator<std::string>(),
-           std::back_inserter<std::vector<std::string>>(tokens));
-      double x = std::stod(tokens[0]);
-      double y = std::stod(tokens[1]);
-      polyline.push_back(new p2t::Point(x, y));
-    }
+    const auto datafile =
+        basedir / boost::filesystem::path("testbed/data") / boost::filesystem::path(filename);
+    BOOST_REQUIRE(ParseFile(datafile.string(), polyline, holes, steiner));
+
     p2t::CDT cdt{ polyline };
+    for (const auto& hole : holes) {
+      cdt.AddHole(hole);
+    }
+    for (const auto& s : steiner) {
+      cdt.AddPoint(s);
+    }
     BOOST_CHECK_NO_THROW(cdt.Triangulate());
     const auto result = cdt.GetTriangles();
     BOOST_REQUIRE(result.size() * 3 > polyline.size());
     BOOST_CHECK_MESSAGE(p2t::IsDelaunay(result), filename + std::to_string(polyline.size()));
+
     for (const auto p : polyline) {
+      delete p;
+    }
+    for (const auto h : holes) {
+      for (const auto p : h) {
+        delete p;
+      }
+    }
+    for (const auto p : steiner) {
+      delete p;
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(NonDelaunayTestbedFilesTest)
+{
+  for (const auto& filename : { "stalactite.dat" }) {
+    std::vector<p2t::Point*> polyline;
+    std::vector<std::vector<p2t::Point*>> holes;
+    std::vector<p2t::Point*> steiner;
+    // Load pointset from file
+    // Parse and tokenize data file
+#ifndef P2T_BASE_DIR
+    const auto basedir = boost::filesystem::path(__FILE__).remove_filename().parent_path();
+#else
+    const auto basedir = boost::filesystem::path(P2T_BASE_DIR);
+#endif
+    const auto datafile =
+        basedir / boost::filesystem::path("testbed/data") / boost::filesystem::path(filename);
+    BOOST_REQUIRE(ParseFile(datafile.string(), polyline, holes, steiner));
+
+    p2t::CDT cdt{ polyline };
+    for (const auto& hole : holes) {
+      cdt.AddHole(hole);
+    }
+    for (const auto& s : steiner) {
+      cdt.AddPoint(s);
+    }
+    BOOST_CHECK_NO_THROW(cdt.Triangulate());
+    const auto result = cdt.GetTriangles();
+    BOOST_REQUIRE(result.size() * 3 > polyline.size());
+
+    for (const auto p : polyline) {
+      delete p;
+    }
+    for (const auto h : holes) {
+      for (const auto p : h) {
+        delete p;
+      }
+    }
+    for (const auto p : steiner) {
       delete p;
     }
   }
